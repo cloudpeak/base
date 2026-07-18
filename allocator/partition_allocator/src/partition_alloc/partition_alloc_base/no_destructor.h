@@ -123,7 +123,7 @@ class NoDestructor {
     }
 
     const T* get() const {
-      return const_cast<PlacementStorage*>(this)->storage();
+      return reinterpret_cast<const T*>(storage_);
     }
     T* get() { return reinterpret_cast<T*>(storage_); }
 

@@ -9,8 +9,8 @@
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 
-_LIBCPP_NORETURN BASE_EXPORT void __libcpp_verbose_abort(char const* format,
-                                                         ...) {
+[[noreturn]] BASE_EXPORT void __libcpp_verbose_abort(char const* format,
+                                                     ...) {
   base::ImmediateCrash();
 }
 
