@@ -173,6 +173,21 @@ set(_exclude_substrings
   "_boringssl.cc"
   # i18n pulls in ICU; not in minimal core
   "/i18n/"
+  # Message pump / message loop infrastructure — not needed in the minimal
+  # core build. Cascade-excludes the parts of //base/task and //base/threading
+  # that depend on MessagePump (sequence_manager, thread_pool,
+  # single_thread_task_executor, current_thread, Thread, RunLoop, etc.).
+  # The leaf task_runner / sequenced_task_runner / delayed_task_handle
+  # classes stay — they don't reference MessagePump and many low-level
+  # users (logging, file_util, timer, ...) only need their static helpers.
+  "/message_loop/"
+  "/task/sequence_manager/"
+  "/task/thread_pool/"
+  "task/single_thread_task_executor.cc"
+  "task/current_thread.cc"
+  "/threading/thread.cc"
+  "run_loop.cc"
+  "files/file_descriptor_watcher_posix.cc"
   # Tracing is disabled — replace with stub
   "/trace_event/"
   "/tracing/"
@@ -268,6 +283,12 @@ set(_keep_files
   # Stubs for partition_alloc symbols (e.g. TerminateBecauseOutOfMemory)
   # referenced by //base when partition_alloc proper is not built.
   "${BASE_ROOT}/cmake/partition_alloc_stubs.cc"
+  # Stubs for task/threading symbols (CurrentUIThread::IsSet(),
+  # ThreadPoolInstance::Get(), ThreadPoolImpl::*TaskRunner factories, etc.)
+  # whose implementations live in the excluded /message_loop/,
+  # /task/sequence_manager/, /task/thread_pool/, task/current_thread.cc,
+  # /threading/thread.cc, run_loop.cc files.
+  "${BASE_ROOT}/cmake/task_stubs.cc"
 )
 
 set(BASE_CC)
