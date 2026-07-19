@@ -8,7 +8,7 @@ add_library(dynamic_annotations STATIC
 target_include_directories(dynamic_annotations PUBLIC
   ${CMAKE_CURRENT_SOURCE_DIR}
   ${CMAKE_CURRENT_SOURCE_DIR}/../valgrind
-  ${CMAKE_SOURCE_DIR}/..
+  ${CHROMIUM_SRC}
 )
 
 set_target_properties(dynamic_annotations PROPERTIES

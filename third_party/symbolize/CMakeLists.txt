@@ -8,7 +8,7 @@ add_library(symbolize STATIC
 
 target_include_directories(symbolize PUBLIC
   ${CMAKE_CURRENT_SOURCE_DIR}
-  ${CMAKE_SOURCE_DIR}/..
+  ${CHROMIUM_SRC}
 )
 
 target_compile_definitions(symbolize PUBLIC

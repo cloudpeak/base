@@ -17,6 +17,7 @@
 #include "base/location.h"
 #include "base/functional/callback.h"
 #include "base/memory/scoped_refptr.h"
+#include "base/run_loop.h"
 #include "base/task/current_thread.h"
 #include "base/task/single_thread_task_runner.h"
 #include "base/task/single_thread_task_runner_thread_mode.h"
@@ -51,6 +52,21 @@ ThreadPoolInstance::ScopedFizzleBlockShutdownTasks::
     ScopedFizzleBlockShutdownTasks() = default;
 ThreadPoolInstance::ScopedFizzleBlockShutdownTasks::
     ~ScopedFizzleBlockShutdownTasks() = default;
+
+// --- ScopedDisallowRunningRunLoop (impl lives in run_loop.cc) ----------------
+// The real implementation (in the excluded run_loop.cc) maintains a delegate
+// pointer to temporarily disallow RunLoop::Run(). The stub provides a no-op
+// version so the class is usable but does not enforce the constraint.
+// In DCHECK builds the class has a const bool member that must be explicitly
+// initialized (otherwise the default constructor is implicitly deleted).
+
+#if DCHECK_IS_ON()
+ScopedDisallowRunningRunLoop::ScopedDisallowRunningRunLoop()
+    : current_delegate_(nullptr), previous_run_allowance_(false) {}
+#else
+ScopedDisallowRunningRunLoop::ScopedDisallowRunningRunLoop() = default;
+#endif
+ScopedDisallowRunningRunLoop::~ScopedDisallowRunningRunLoop() = default;
 
 namespace internal {
 

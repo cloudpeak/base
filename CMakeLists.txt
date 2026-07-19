@@ -72,6 +72,7 @@ add_library(base_compile_config INTERFACE)
 target_include_directories(base_compile_config INTERFACE
   ${CHROMIUM_SRC}                                       # base/, third_party/...
   ${BASE_ROOT}/allocator/partition_allocator/src        # partition_alloc/
+  ${CMAKE_CURRENT_SOURCE_DIR}/cmake/stubs               # testing/gtest/... stub
 )
 # -iquote: only visible to `#include "..."` (not `#include <...>`).
 # This lets base sources use `#include "build/build_config.h"` and
@@ -121,6 +122,18 @@ if(NOT BASE_ABSL_SOURCE_DIR)
       CACHE PATH "Path to abseil-cpp source tree")
 endif()
 message(STATUS "base: BASE_ABSL_SOURCE_DIR = ${BASE_ABSL_SOURCE_DIR}")
+
+# Base headers include abseil via the Chromium-style path
+# `#include "third_party/abseil-cpp/absl/..."`. In a full Chromium checkout
+# this resolves via ${CHROMIUM_SRC} (which contains both base/ and
+# third_party/abseil-cpp/). When base is consumed as a subdirectory of
+# another project (e.g. tin), abseil-cpp lives at ${BASE_ABSL_SOURCE_DIR}
+# which is NOT under ${CHROMIUM_SRC}/third_party/. Adding
+# ${BASE_ABSL_SOURCE_DIR}/../.. makes the "third_party/abseil-cpp/" prefix
+# resolve to the actual abseil source tree.
+target_include_directories(base_compile_config INTERFACE
+  ${BASE_ABSL_SOURCE_DIR}/../..
+)
 
 set(ABSL_PROPAGATE_CXX_STD ON CACHE BOOL "" FORCE)
 set(ABSL_BUILD_TESTING OFF CACHE BOOL "" FORCE)
@@ -313,6 +326,12 @@ set(_exclude_substrings
   # Test helpers that depend on gmock (not pulled in for the minimal build).
   "test_task_factory.cc"
   "test_utils.cc"
+  # Compile-test files (e.g. dynamic_annotations_compiletest.cc) are
+  # build-time checks, not library sources.
+  "_compiletest.cc"
+  # mock_timer.cc depends on base/test/test_simple_task_runner.h which lives
+  # in the excluded /test/ directory.
+  "mock_timer.cc"
   # ICU-backed time helpers — we don't link ICU in the minimal build.
   "time_exploded_icu.cc"
   # Required for partition_alloc only
@@ -416,11 +435,25 @@ set(_keep_files
   # /task/sequence_manager/, /task/thread_pool/, task/current_thread.cc,
   # /threading/thread.cc, run_loop.cc files.
   "${BASE_ROOT}/cmake/task_stubs.cc"
-  # Windows-specific stubs for symbols whose implementations live in
-  # excluded files (win/win_util.cc, command_line.cc, /task/thread_pool/,
-  # partition_alloc page_allocator). Only compiled on Windows.
-  "${BASE_ROOT}/cmake/win_stubs.cc"
+  # Stubs for process/memory symbols (UncheckedMalloc, UncheckedCalloc,
+  # UncheckedFree, EnableTerminationOnOutOfMemory, etc.) whose real
+  # implementations live in the excluded process/memory*.cc files.
+  # Needed because metrics/persistent_histogram_storage.cc and other
+  # sources call base::UncheckedMalloc().
+  "${BASE_ROOT}/process/memory_stubs.cc"
+  # Stub for PowerMonitorDeviceSource::IsOnBatteryPower() — the real
+  # implementation lives in platform-specific _win.cc (excluded on Linux).
+  # Without this stub, any jumbo unit containing code that references
+  # PowerMonitor::IsOnBatteryPower() fails to link.
+  "${BASE_ROOT}/power_monitor/power_monitor_device_source_stub.cc"
 )
+# Windows-specific stubs for symbols whose implementations live in excluded
+# files (win/win_util.cc, command_line.cc, /task/thread_pool/, partition_alloc
+# page_allocator). Only compiled on Windows — on Linux the actual POSIX
+# implementations are compiled instead.
+if(WIN32)
+  list(APPEND _keep_files "${BASE_ROOT}/cmake/win_stubs.cc")
+endif()
 
 set(BASE_CC)
 foreach(f ${BASE_ALL_CC})
@@ -481,12 +514,6 @@ if(BASE_JUMBO_BUILD)
     "perftest"
     "build_utf8_validator_tables.cc"
     "smoke_test_main.cc"
-    # --- dynamic_annotations_compiletest.cc redefines macros from
-    #     absl's dynamic_annotations.h. ---
-    "_compiletest.cc"
-    # --- mock_timer.cc depends on TestPendingTask (lives in excluded
-    #     /test/ directory). ---
-    "mock_timer.cc"
     # --- NaCl alternative implementations: define the same symbols as
     #     their _posix.cc / _win.cc counterparts.  In normal mode the
     #     linker picks one .o; in jumbo mode they share a TU →
@@ -503,6 +530,16 @@ if(BASE_JUMBO_BUILD)
     #     never referenced; in jumbo mode it's merged with referenced
     #     code → undefined-symbol link error. ---
     "enterprise_util.cc"
+    # --- task/post_job.cc references JobTaskSource and
+    #     PooledTaskRunnerDelegate (defined in excluded /task/thread_pool/).
+    #     In normal mode the .o is never referenced; in jumbo mode it's
+    #     merged with referenced code -> undefined-symbol link error. ---
+    "task/post_job.cc"
+    # --- task/single_thread_task_runner.cc references
+    #     ScopedDisallowRunningRunLoop (defined in excluded run_loop.cc).
+    #     In normal mode the .o is never referenced; in jumbo mode it's
+    #     merged with referenced code -> undefined-symbol link error. ---
+    "task/single_thread_task_runner.cc"
     # --- nodebug_assertion.cc includes <__config> (libc++ internal). ---
     "nodebug_assertion.cc"
   )

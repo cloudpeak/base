@@ -15,7 +15,7 @@ add_library(double_conversion STATIC
 target_include_directories(double_conversion PUBLIC
   ${CMAKE_CURRENT_SOURCE_DIR}
   ${CMAKE_CURRENT_SOURCE_DIR}/double-conversion
-  ${CMAKE_SOURCE_DIR}/..
+  ${CHROMIUM_SRC}
 )
 
 if(CMAKE_CXX_COMPILER_ID STREQUAL "Clang")

@@ -15,7 +15,7 @@ if(WIN32)
   add_library(libevent STATIC ${CMAKE_CURRENT_BINARY_DIR}/libevent_stub.c)
   target_include_directories(libevent PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}
-    ${CMAKE_SOURCE_DIR}/..
+    ${CHROMIUM_SRC}
   )
   set_target_properties(libevent PROPERTIES
     POSITION_INDEPENDENT_CODE ON
@@ -51,7 +51,7 @@ else()
   target_include_directories(libevent PUBLIC
     ${CMAKE_CURRENT_BINARY_DIR}
     ${CMAKE_CURRENT_SOURCE_DIR}
-    ${CMAKE_SOURCE_DIR}/..
+    ${CHROMIUM_SRC}
   )
 
   set_target_properties(libevent PROPERTIES

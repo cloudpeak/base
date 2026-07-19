@@ -7,7 +7,7 @@ add_library(xdg_user_dirs STATIC
 
 target_include_directories(xdg_user_dirs PUBLIC
   ${CMAKE_CURRENT_SOURCE_DIR}
-  ${CMAKE_SOURCE_DIR}/..
+  ${CHROMIUM_SRC}
 )
 
 set_target_properties(xdg_user_dirs PROPERTIES

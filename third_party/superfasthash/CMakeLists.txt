@@ -7,7 +7,7 @@ add_library(superfasthash STATIC
 
 target_include_directories(superfasthash PUBLIC
   ${CMAKE_CURRENT_SOURCE_DIR}
-  ${CMAKE_SOURCE_DIR}/..
+  ${CHROMIUM_SRC}
 )
 
 set_target_properties(superfasthash PROPERTIES
