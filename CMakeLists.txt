@@ -76,18 +76,33 @@ target_compile_options(base_compile_config INTERFACE "-iquote${BASE_ROOT}")
 # ---------------------------------------------------------------------------
 # abseil-cpp (external, from //third_party/abseil-cpp)
 # ---------------------------------------------------------------------------
+# Allow the parent project to override the abseil-cpp source directory.
+# Default: ${CHROMIUM_SRC}/third_party/abseil-cpp (base's in-tree location
+# when consumed as part of a full Chromium checkout). When base is consumed
+# as a subdirectory of another project (e.g. tin), the parent must set
+# BASE_ABSL_SOURCE_DIR before calling add_subdirectory(...).
+#
+# Use CACHE so a parent-set value wins over the default here even across
+# reconfigures; FORCE only on the default branch so we never overwrite an
+# explicit parent setting.
+if(NOT BASE_ABSL_SOURCE_DIR)
+  set(BASE_ABSL_SOURCE_DIR ${CHROMIUM_SRC}/third_party/abseil-cpp
+      CACHE PATH "Path to abseil-cpp source tree")
+endif()
+message(STATUS "base: BASE_ABSL_SOURCE_DIR = ${BASE_ABSL_SOURCE_DIR}")
+
 set(ABSL_PROPAGATE_CXX_STD ON CACHE BOOL "" FORCE)
 set(ABSL_BUILD_TESTING OFF CACHE BOOL "" FORCE)
 set(ABSL_ENABLE_INSTALL OFF CACHE BOOL "" FORCE)
 # Hide the bazel-style copts file lookups behind the build dir.
-if(EXISTS ${CHROMIUM_SRC}/third_party/abseil-cpp/CMakeLists.txt)
+if(EXISTS ${BASE_ABSL_SOURCE_DIR}/CMakeLists.txt)
   add_subdirectory(
-    ${CHROMIUM_SRC}/third_party/abseil-cpp
+    ${BASE_ABSL_SOURCE_DIR}
     ${CMAKE_BINARY_DIR}/abseil-cpp
     EXCLUDE_FROM_ALL
   )
 else()
-  message(FATAL_ERROR "abseil-cpp not found at ${CHROMIUM_SRC}/third_party/abseil-cpp")
+  message(FATAL_ERROR "abseil-cpp not found at ${BASE_ABSL_SOURCE_DIR}")
 endif()
 
 # ---------------------------------------------------------------------------
