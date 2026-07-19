@@ -447,6 +447,76 @@ list(LENGTH BASE_CC _n)
 message(STATUS "base: ${_n} .cc sources will be compiled into libbase")
 
 # ---------------------------------------------------------------------------
+# Jumbo (unity) build
+# ---------------------------------------------------------------------------
+# When BASE_JUMBO_BUILD is ON, merge multiple .cc files into a small number
+# of "jumbo" translation units to dramatically reduce compilation time.
+# Each jumbo unit #includes up to BASE_JUMBO_FILE_LIMIT source files.
+#
+# Files that cannot safely share a translation unit are listed in
+# _jumbo_excludes and kept as standalone compilation units.  These are
+# *jumbo-only* issues — in normal (non-jumbo) mode the linker only pulls
+# the .o files that are actually referenced, so unreferenced main()
+# functions or undefined-symbol calls never cause errors.
+option(BASE_JUMBO_BUILD "Enable jumbo (unity) build for faster compilation" OFF)
+set(BASE_JUMBO_FILE_LIMIT 50 CACHE STRING "Max source files per jumbo unit")
+
+if(BASE_JUMBO_BUILD)
+  include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/jumbo_build.cmake)
+
+  # Patterns matched as substrings against the full source path.
+  set(_jumbo_excludes
+    # --- Stub files: small, define specific symbols, no jumbo benefit. ---
+    "cmake/win_stubs.cc"
+    "cmake/task_stubs.cc"
+    "cmake/partition_alloc_stubs.cc"
+    "trace_event_stub.cc"
+    "file_path_watcher_stub.cc"
+    # --- Files that define main(): in jumbo mode the whole merged .o is
+    #     pulled in by any referenced symbol, causing multiple-main link
+    #     errors.  In normal mode these .o files are never referenced and
+    #     silently dropped by the linker. ---
+    "_example.cc"
+    "_benchmark.cc"
+    "perftest"
+    "build_utf8_validator_tables.cc"
+    "smoke_test_main.cc"
+    # --- dynamic_annotations_compiletest.cc redefines macros from
+    #     absl's dynamic_annotations.h. ---
+    "_compiletest.cc"
+    # --- mock_timer.cc depends on TestPendingTask (lives in excluded
+    #     /test/ directory). ---
+    "mock_timer.cc"
+    # --- NaCl alternative implementations: define the same symbols as
+    #     their _posix.cc / _win.cc counterparts.  In normal mode the
+    #     linker picks one .o; in jumbo mode they share a TU →
+    #     redefinition errors. ---
+    "stack_trace_nacl.cc"
+    "platform_thread_nacl.cc"
+    "page_size_nacl.cc"
+    "sync_socket_nacl.cc"
+    "rand_util_nacl.cc"
+    "sys_info_nacl.cc"
+    "os_compat_nacl.cc"
+    # --- enterprise_util.cc calls IsManagedDevice()/IsEnterpriseDevice()
+    #     which have no Linux implementation.  In normal mode the .o is
+    #     never referenced; in jumbo mode it's merged with referenced
+    #     code → undefined-symbol link error. ---
+    "enterprise_util.cc"
+    # --- nodebug_assertion.cc includes <__config> (libc++ internal). ---
+    "nodebug_assertion.cc"
+  )
+
+  enable_jumbo_build(
+    SOURCES_VAR    BASE_CC
+    BUILD_DIR      ${CMAKE_BINARY_DIR}/jumbo/base
+    INCLUDE_ROOT   ${CHROMIUM_SRC}
+    FILE_LIMIT     ${BASE_JUMBO_FILE_LIMIT}
+    EXCLUDE_FILES  ${_jumbo_excludes}
+  )
+endif()
+
+# ---------------------------------------------------------------------------
 # libbase
 # ---------------------------------------------------------------------------
 add_library(base STATIC ${BASE_CC})
