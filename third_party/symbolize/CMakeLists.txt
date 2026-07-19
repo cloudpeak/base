@@ -20,4 +20,9 @@ set_target_properties(symbolize PROPERTIES
 )
 
 # Symbolization is slow unoptimized; mirror GN and force -O2 even in Debug.
-target_compile_options(symbolize PRIVATE -O2)
+# clang-cl on Windows accepts -O2, but pure MSVC uses /O2.
+if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
+  target_compile_options(symbolize PRIVATE -O2)
+elseif(MSVC)
+  target_compile_options(symbolize PRIVATE /O2)
+endif()

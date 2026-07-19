@@ -7,17 +7,19 @@
 /* Namespace for Google classes */
 #define GOOGLE_NAMESPACE google
 
+#if !defined(_WIN32)
 /* Define to 1 if you have the <dlfcn.h> header file. */
 #define HAVE_DLFCN_H
 
 /* define if your compiler has __attribute__ */
 #define HAVE___ATTRIBUTE__
 
-/* define if symbolize support is available */
+/* define if symbolize support is available (requires ELF/macOS) */
 #define HAVE_SYMBOLIZE
+#endif
 
 /* The size of `void *', as computed by sizeof. */
-#if defined(__LP64__)
+#if defined(__LP64__) || defined(_M_X64)
 #define SIZEOF_VOID_P 8
 #else
 #define SIZEOF_VOID_P 4

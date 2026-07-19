@@ -16,4 +16,9 @@ set_target_properties(superfasthash PROPERTIES
 )
 
 # This is third-party C code; suppress the noisy warnings.
-target_compile_options(superfasthash PRIVATE -w)
+# -w works with GCC/Clang (including clang-cl); pure MSVC uses /w.
+if(CMAKE_C_COMPILER_ID MATCHES "Clang|GNU")
+  target_compile_options(superfasthash PRIVATE -w)
+elseif(MSVC)
+  target_compile_options(superfasthash PRIVATE /w)
+endif()

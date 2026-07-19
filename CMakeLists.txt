@@ -1,7 +1,8 @@
 # Copyright 2024 The Chromium Authors
 # CMake build for the Chromium //base module — minimal core configuration.
 #
-# This is a minimal CMake-based build of //base targeting Linux + clang.
+# This is a minimal CMake-based build of //base targeting Linux + clang and
+# Windows + clang-cl (VS2022).
 # Out of scope for this initial version:
 #   - i18n (ICU)
 #   - tracing (perfetto)
@@ -9,9 +10,9 @@
 #   - PartitionAlloc-Everywhere (USE_PARTITION_ALLOC=false; raw_ptr is
 #     the no-op implementation)
 #   - PartitionAlloc-as-malloc / allocator shim
-#   - All non-Linux platform code
 #
-# The output is a single static library `libbase.a`.
+# The output is a single static library `libbase.a` (Linux) / `base.lib`
+# (Windows).
 
 cmake_minimum_required(VERSION 3.16)
 
@@ -27,7 +28,9 @@ find_package(Threads REQUIRED)
 # (from GCC 11 on Ubuntu 22.04) don't survive clang 22. Force libc++.
 # Also add the Homebrew lib dir to the linker search path so try_compile
 # checks (e.g. abseil's C++17 probe) can find -lc++ / -lc++abi.
-if(CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
+# Guard with UNIX so this does NOT run on Windows clang-cl (which uses
+# the MSVC standard library and has no /home/linuxbrew path).
+if(CMAKE_CXX_COMPILER_ID STREQUAL "Clang" AND UNIX)
   set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -stdlib=libc++")
   set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -stdlib=libc++ -L/home/linuxbrew/.linuxbrew/lib")
   set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -stdlib=libc++ -L/home/linuxbrew/.linuxbrew/lib")
@@ -36,7 +39,9 @@ endif()
 
 # Default to the Homebrew clang++ on WSL. Override by passing
 # -DCMAKE_CXX_COMPILER=... on first configure.
-if(NOT CMAKE_CXX_COMPILER)
+# On Windows, the caller selects clang-cl via the VS toolset (-T ClangCL)
+# or by passing -DCMAKE_CXX_COMPILER=clang-cl explicitly.
+if(UNIX AND NOT CMAKE_CXX_COMPILER)
   if(EXISTS /home/linuxbrew/.linuxbrew/bin/clang++)
     set(CMAKE_CXX_COMPILER /home/linuxbrew/.linuxbrew/bin/clang++)
     set(CMAKE_C_COMPILER   /home/linuxbrew/.linuxbrew/bin/clang)
@@ -71,7 +76,33 @@ target_include_directories(base_compile_config INTERFACE
 # -iquote: only visible to `#include "..."` (not `#include <...>`).
 # This lets base sources use `#include "build/build_config.h"` and
 # `#include "features.h"` while leaving glibc's <features.h> alone.
-target_compile_options(base_compile_config INTERFACE "-iquote${BASE_ROOT}")
+# On Windows there is no glibc <features.h> shadowing issue, so we can
+# use a regular -I. clang-cl supports -iquote, but the MSVC generator
+# may not handle it correctly in all contexts.
+if(UNIX)
+  target_compile_options(base_compile_config INTERFACE "-iquote${BASE_ROOT}")
+else()
+  target_include_directories(base_compile_config INTERFACE ${BASE_ROOT})
+endif()
+
+# Windows-specific compile definitions. These must be set on
+# base_compile_config (an INTERFACE target) so they propagate to base
+# and all of its third-party dependencies. The parent project's
+# add_definitions() runs after add_subdirectory(base) and therefore does
+# NOT reach base — setting them here ensures base sources see them.
+if(WIN32)
+  target_compile_definitions(base_compile_config INTERFACE
+    UNICODE
+    _UNICODE
+    NOMINMAX
+    _CRT_SECURE_NO_WARNINGS
+    _CRT_SECURE_NO_DEPRECATE
+    _SCL_SECURE_NO_DEPRECATE
+    _WINSOCKAPI_
+    __STDC_CONSTANT_MACROS
+    __STDC_FORMAT_MACROS
+  )
+endif()
 
 # ---------------------------------------------------------------------------
 # abseil-cpp (external, from //third_party/abseil-cpp)
@@ -158,10 +189,11 @@ set(_exclude_substrings
   "/cmake/"
   # The CMake build output dir is inside //base; never compile its contents
   "/cmake-build/"
-  # Per-platform sources we don't build
+  # Per-platform sources we don't build (common to all platforms).
+  # Note: _win.cc and /win/ are only excluded on non-Windows; _posix.cc
+  # is only excluded on Windows. See the platform-specific block below.
   "/android/"
   "/apple/"
-  "/win/"
   "/mac/"
   "/ios/"
   "/fuchsia/"
@@ -173,8 +205,6 @@ set(_exclude_substrings
   "_macos.cc"
   "_ios.cc"
   "_apple.cc"
-  "_win.cc"
-  "_winrt.cc"
   "_chromeos.cc"
   "_cros.cc"
   "_aix.cc"
@@ -221,15 +251,18 @@ set(_exclude_substrings
   "discardable_shared_memory.cc"
   "shared_memory_switch.cc"
   "histogram_shared_memory.cc"
-  "process/kill.cc"
-  "process/launch.cc"
-  "process/memory.cc"
-  "process/process_iterator.cc"
-  "process/kill_posix.cc"
-  # file_path_watcher requires blink
-  "file_path_watcher.cc"
-  # sync_socket requires blink
-  "sync_socket.cc"
+  # process/kill, launch, memory, process_iterator — excluded entirely
+  # (cross-platform .cc + _posix.cc + _win.cc variants) because they pull
+  # in subprocess/launch infrastructure not needed in the minimal build.
+  # Using broad patterns (without .cc suffix) catches all platform variants.
+  "process/kill"
+  "process/launch"
+  "process/memory"
+  "process/process_iterator"
+  # file_path_watcher requires blink (catch all platform variants)
+  "file_path_watcher"
+  # sync_socket requires blink (catch all platform variants)
+  "sync_socket"
   # message_pump_glib requires glib
   "message_pump_glib.cc"
   # Profiler unwinder backends we don't ship
@@ -289,6 +322,85 @@ set(_exclude_substrings
   "allocator/early_zone_registration_apple.cc"
 )
 
+# ---------------------------------------------------------------------------
+# Platform-specific source exclusions
+# ---------------------------------------------------------------------------
+# On non-Windows (Linux/macOS): exclude _win.cc, _winrt.cc, /win/.
+# On Windows: exclude _posix.cc (POSIX API users that won't compile on
+#   Windows) and _winrt.cc (UWP-only). Also exclude Windows-specific
+#   _win.cc files whose cross-platform .cc counterpart is already excluded
+#   above (they would have unresolved symbols without the base .cc file).
+if(WIN32)
+  list(APPEND _exclude_substrings
+    # POSIX-specific sources — won't compile on Windows (use POSIX APIs
+    # like unistd.h, dlfcn.h, pthread, etc. without guards).
+    "_posix.cc"
+    # UWP-only sources — not supported in our minimal desktop build.
+    "_winrt.cc"
+    # Linux-specific sources — on Windows, _win.cc variants are used.
+    # Use broad pattern to catch _linux.cc, _linux_base.cc, etc.
+    "_linux"
+    # NaCl-specific sources that include <unistd.h> or other POSIX headers.
+    # (Most *_nacl.cc files are self-contained C++ ports we want to keep,
+    # but these specific ones use POSIX APIs.)
+    "page_size_nacl.cc"
+    # ELF/DWARF debug info readers — Linux/ELF only (include <elf.h>,
+    # <unistd.h>, use ssize_t, google::ReadFromOffset, etc.).
+    "buffered_dwarf_reader.cc"
+    "dwarf_line_no.cc"
+    "elf_reader.cc"
+    "test_elf_image_builder"
+    # allocation_trace requires a stack tracer backend (frame pointers or
+    # Linux). On Windows we exclude the profiler, so this hits #error.
+    "allocation_trace.cc"
+    # file_descriptor_store uses base::ScopedFD (POSIX-only).
+    "file_descriptor_store"
+    # linux_util uses pid_t and other POSIX/Linux types.
+    "linux_util"
+    # command_line.cc has a static_assert that uses a non-constexpr
+    # variable (kSwitchPrefixes); this fails on clang-cl. Excluding it
+    # is safe for the minimal build.
+    "command_line.cc"
+    # WMI support requires COM initialization and has complex dependencies
+    # not needed in the minimal build.
+    "wmi.cc"
+    # process_startup_helper depends on CommandLine (excluded above).
+    "process_startup_helper.cc"
+    # Unix/Linux-specific directories (arpa/inet.h, unistd.h, etc.).
+    "/nix/"
+    "/posix/"
+    # nodebug_assertion.cc provides __libcpp_verbose_abort for libc++.
+    # It includes <__config> (a libc++ internal header) not available with
+    # the MSVC standard library used on Windows.
+    "nodebug_assertion.cc"
+    # os_compat_nacl.cc uses POSIX setenv/unsetenv not available on Windows.
+    # (Most *_nacl.cc files are self-contained, but this one is not.)
+    "os_compat_nacl.cc"
+    # battery_level_provider_win.cc includes <initguid.h> which causes
+    # GUID_DEVINTERFACE_* redefinition errors with winioctl.h.
+    # Battery monitoring is not needed in the minimal build.
+    "battery_level_provider_win.cc"
+    # scoped_handle_test_dll.cc is a test DLL that requires the generated
+    # base_win_buildflags.h header (not produced in our minimal CMake build).
+    "scoped_handle_test_dll.cc"
+    # win_util.cc includes <lm.h> and other Windows SDK headers that require
+    # the full <windows.h> (not just windows_types.h). It also depends on
+    # MDM registration, setup API, shell scaling, etc. — not needed in the
+    # minimal build.
+    "win/win_util.cc"
+    # scoped_pdh_query.cc includes <lm.h> via scoped_pdh_query.h, which
+    # requires the full <windows.h>. PDH (Performance Data Helper) is not
+    # needed in the minimal build.
+    "scoped_pdh_query.cc"
+  )
+else()
+  list(APPEND _exclude_substrings
+    "_win.cc"
+    "_winrt.cc"
+    "/win/"
+  )
+endif()
+
 # Files whose basename matches the stub we explicitly keep (override the
 # broad "/trace_event/" exclusion above).
 set(_keep_files
@@ -304,6 +416,10 @@ set(_keep_files
   # /task/sequence_manager/, /task/thread_pool/, task/current_thread.cc,
   # /threading/thread.cc, run_loop.cc files.
   "${BASE_ROOT}/cmake/task_stubs.cc"
+  # Windows-specific stubs for symbols whose implementations live in
+  # excluded files (win/win_util.cc, command_line.cc, /task/thread_pool/,
+  # partition_alloc page_allocator). Only compiled on Windows.
+  "${BASE_ROOT}/cmake/win_stubs.cc"
 )
 
 set(BASE_CC)
@@ -381,8 +497,28 @@ target_link_libraries(base
   PRIVATE
     Threads::Threads
     ${CMAKE_DL_LIBS}
-    rt
 )
+
+# Platform-specific link libraries.
+if(UNIX)
+  target_link_libraries(base PRIVATE rt)
+endif()
+if(WIN32)
+  target_link_libraries(base PRIVATE
+    psapi
+    ws2_32
+    dbghelp
+    shlwapi
+    ntdll
+    user32
+    kernel32
+    advapi32
+    version
+    powrprof
+    winmm      # timeBeginPeriod/timeEndPeriod/timeGetTime (time_win.cc)
+    delayimp   # __HrLoadAllImportsForDll (pe_image.cc)
+  )
+endif()
 
 # Required for symbolize (line numbers from DWARF) on Linux.
 target_compile_definitions(base
@@ -398,6 +534,9 @@ target_compile_definitions(base
     BASE_MEMORY_PRESSURE_LEVEL_REPORTING_IMPLEMENTATION
 )
 
+# GCC/Clang-style warning suppressions. clang-cl on Windows also accepts
+# these flags, but pure MSVC does not. Guard with compiler id check.
+if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
 target_compile_options(base PRIVATE
   -Wno-unknown-warning-option
   -Wno-unused-function
@@ -433,6 +572,7 @@ target_compile_options(base PRIVATE
   -Wno-c++20-designator
   -Wno-nontrivial-memcall
 )
+endif()
 
 # Generated headers we created in source dirs (buildflag files) are
 # reachable via base_compile_config (BASE_ROOT is on the include path).
