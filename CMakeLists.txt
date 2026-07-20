@@ -317,6 +317,11 @@ set(_exclude_substrings
   # (md5_nacl.cc, sha1_nacl.cc, os_compat_nacl.cc, ...) are self-contained
   # C++ ports that we DO want to build.
   "rand_util_nacl.cc"
+  # stack_trace_nacl.cc duplicates base::debug::StackTrace definitions
+  # already provided by stack_trace.cc on non-NaCl platforms. In jumbo
+  # mode, both .o files can be pulled in simultaneously → multiple
+  # definition linker errors.
+  "stack_trace_nacl.cc"
   # sys_info_nacl.cc duplicates SysInfo::VMAllocationGranularity() which is
   # already provided by sys_info_posix.cc on Linux.
   "sys_info_nacl.cc"
